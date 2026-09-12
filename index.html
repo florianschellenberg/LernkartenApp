@@ -202,12 +202,12 @@
       const lines = csvText.trim().split('\n');
       const result = [];
       
-      // Wir starten bei i=1, um die Kopfzeile (id;question;answer) zu überspringen
+      // Wir starten bei i=1, um die Kopfzeile (id,question,answer) zu überspringen
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (line) {
-          // Wir trennen die Spalten am Semikolon auf
-          const parts = line.split(';'); 
+          // Wir trennen die Spalten am Komma auf
+          const parts = line.split(','); 
           if (parts.length >= 3) {
             result.push({
               id: parseInt(parts[0], 10),
