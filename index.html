@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lernkarten App</title>
+  <style>
+    :root {
+      --primary: #007bff;
+      --success: #28a745;
+      --danger: #dc3545;
+      --bg: #f4f7f6;
+      --text: #333;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    h1 { margin-bottom: 5px; font-size: 24px; }
+    
+    .status-bar {
+      width: 100%;
+      max-width: 350px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      font-size: 14px;
+      color: #666;
+    }
+
+    /* 3D-Kartenstil */
+    .scene {
+      width: 100%;
+      max-width: 350px;
+      height: 220px;
+      perspective: 1000px;
+      cursor: pointer;
+    }
+
+    .card {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      transition: transform 0.6s;
+      transform-style: preserve-3d;
+    }
+
+    .card.is-flipped {
+      transform: rotateY(180deg);
+    }
+
+    .card-face {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: white;
+      border-radius: 15px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 25px;
+      box-sizing: border-box;
+      backface-visibility: hidden;
+      font-size: 18px;
+      overflow-y: auto;
+    }
+
+    .card-back {
+      background-color: #f9f9f9;
+      color: var(--primary);
+      transform: rotateY(180deg);
+    }
+
+    /* Lern-Buttons */
+    .learning-controls {
+      display: none;
+      gap: 15px;
+      margin-top: 20px;
+      width: 100%;
+      max-width: 350px;
+    }
+
+    .learn-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-weight: bold;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .know-btn { background-color: var(--success); }
+    .dont-know-btn { background-color: var(--danger); }
+
+    .controls, .done-container {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 350px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .nav-btns {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 6px;
+      background-color: #6c757d;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .primary-btn { background-color: var(--primary); }
+    .secondary-btn { background-color: #e2e6ea; color: var(--text); }
+
+    .done-container {
+      display: none;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <h1>Karteikarten</h1>
+  
+  <div class="status-bar">
+    <span id="card-counter">Lade Karten...</span>
+    <span id="learned-counter">Gelernt: 0</span>
+  </div>
+
+  <div class="scene" id="card-scene" onclick="flipCard()">
+    <div class="card" id="card-element">
+      <div class="card-face card-front" id="card-question">Lade...</div>
+      <div class="card-face card-back" id="card-answer">Lade...</div>
+    </div>
+  </div>
+
+  <div class="learning-controls" id="learning-controls">
+    <button class="learn-btn dont-know-btn" onclick="markAsUnknown()">Nicht gewusst 👎</button>
+    <button class="learn-btn know-btn" onclick="markAsKnown()">Gewusst 👍</button>
+  </div>
+
+  <div class="controls" id="standard-controls">
+    <div class="nav-btns">
+      <button class="secondary-btn" style="flex:1" onclick="prevCard()">Zurück</button>
+      <button class="primary-btn" style="flex:1" onclick="nextCard()">Weiter</button>
+    </div>
+  </div>
+
+  <div class="done-container" id="done-container">
+    <h2>🎉 Super gemacht!</h2>
+    <p>Du hast alle verfügbaren Karten gelernt.</p>
+    <button class="primary-btn" onclick="resetLearning()">Lernstatus zurücksetzen</button>
+  </div>
+
+  <script>
+    let allCards = [];
+    // Hier speichern Nutzer nur die IDs der Karten, die sie können (z. B. [1, 3])
+    let learnedIds = JSON.parse(localStorage.getItem("flashcards_learned_ids")) || [];
+    let cardsToLearn = [];
+    let currentIndex = 0;
+    let showingQuestion = true;
+
+    const cardElement = document.getElementById('card-element');
+    const questionElement = document.getElementById('card-question');
+    const answerElement = document.getElementById('card-answer');
+    const learningControls = document.getElementById('learning-controls');
+    const standardControls = document.getElementById('standard-controls');
+    const cardScene = document.getElementById('card-scene');
+    const doneContainer = document.getElementById('done-container');
+    const cardCounter = document.getElementById('card-counter');
+    const learnedCounter = document.getElementById('learned-counter');
+
+    // Karten aus der zentralen karten.json laden
+    async function loadCards() {
+      try {
+        const response = await fetch('karten.json');
+        if (!response.ok) throw new Error("Netzwerkantwort war nicht ok");
+        allCards = await response.json();
+      } catch (error) {
+        console.log("Lade Fallback-Daten für die Vorschau...");
+        // Fallback, falls die JSON in der Vorschau-Umgebung nicht geladen werden kann
+        allCards = [
+          { "id": 1, "question": "Wofür steht HTML?", "answer": "HyperText Markup Language" },
+          { "id": 2, "question": "Wofür steht CSS?", "answer": "Cascading Style Sheets" },
+          { "id": 3, "question": "Was macht JavaScript?", "answer": "Es macht Webseiten interaktiv." }
+        ];
+      }
+      updateUI();
+    }
+
+    function saveLearnedProgress() {
+      localStorage.setItem("flashcards_learned_ids", JSON.stringify(learnedIds));
+    }
+
+    function updateUI() {
+      // Nur Karten filtern, deren ID noch nicht in learnedIds ist
+      cardsToLearn = allCards.filter(card => !learnedIds.includes(card.id));
+      learnedCounter.textContent = `Gelernt: ${learnedIds.length} / ${allCards.length}`;
+
+      if (cardsToLearn.length === 0 && allCards.length > 0) {
+        cardScene.classList.add('hidden');
+        learningControls.classList.add('hidden');
+        standardControls.classList.add('hidden');
+        doneContainer.style.display = 'block';
+        cardCounter.textContent = "0/0";
+        return;
+      }
+
+      cardScene.classList.remove('hidden');
+      standardControls.classList.remove('hidden');
+      doneContainer.style.display = 'none';
+
+      if (currentIndex >= cardsToLearn.length) currentIndex = 0;
+
+      cardCounter.textContent = `Karte ${currentIndex + 1}/${cardsToLearn.length}`;
+      questionElement.textContent = cardsToLearn[currentIndex].question;
+      answerElement.textContent = cardsToLearn[currentIndex].answer;
+    }
+
+    function flipCard() {
+      if (cardsToLearn.length === 0) return;
+      cardElement.classList.toggle('is-flipped');
+      showingQuestion = !showingQuestion;
+      learningControls.style.display = showingQuestion ? 'none' : 'flex';
+    }
+
+    function nextCard() {
+      if (cardsToLearn.length === 0) return;
+      resetFlip();
+      currentIndex = (currentIndex + 1) % cardsToLearn.length;
+      updateUI();
+    }
+
+    function prevCard() {
+      if (cardsToLearn.length === 0) return;
+      resetFlip();
+      currentIndex = (currentIndex - 1 + cardsToLearn.length) % cardsToLearn.length;
+      updateUI();
+    }
+
+    function resetFlip() {
+      cardElement.classList.remove('is-flipped');
+      learningControls.style.display = 'none';
+      showingQuestion = true;
+    }
+
+    function markAsKnown() {
+      const currentCard = cardsToLearn[currentIndex];
+      if (!learnedIds.includes(currentCard.id)) {
+        learnedIds.push(currentCard.id);
+        saveLearnedProgress();
+      }
+      resetFlip();
+      if (currentIndex >= cardsToLearn.length - 1) currentIndex = 0;
+      updateUI();
+    }
+
+    function markAsUnknown() {
+      nextCard();
+    }
+
+    function resetLearning() {
+      learnedIds = [];
+      saveLearnedProgress();
+      currentIndex = 0;
+      updateUI();
+    }
+
+    // Startet die App
+    loadCards();
+  </script>
+</body>
+</html>
