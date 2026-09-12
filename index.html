@@ -197,19 +197,46 @@
     const cardCounter = document.getElementById('card-counter');
     const learnedCounter = document.getElementById('learned-counter');
 
-    // Karten aus der zentralen karten.json laden
+    // Funktion wandelt den CSV-Text in ein Array von Objekten um
+    function parseCSV(csvText) {
+      const lines = csvText.trim().split('\n');
+      const result = [];
+      
+      // Wir starten bei i=1, um die Kopfzeile (id;question;answer) zu überspringen
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line) {
+          // Wir trennen die Spalten am Semikolon auf
+          const parts = line.split(';'); 
+          if (parts.length >= 3) {
+            result.push({
+              id: parseInt(parts[0], 10),
+              question: parts[1],
+              answer: parts[2]
+            });
+          }
+        }
+      }
+      return result;
+    }
+
+    // Karten aus der zentralen karten.csv laden
     async function loadCards() {
       try {
-        const response = await fetch('karten.json');
+        const response = await fetch('karten.csv');
         if (!response.ok) throw new Error("Netzwerkantwort war nicht ok");
-        allCards = await response.json();
+        
+        // Wir laden den puren Text herunter statt JSON
+        const csvText = await response.text();
+        allCards = parseCSV(csvText);
+        
       } catch (error) {
         console.log("Lade Fallback-Daten für die Vorschau...");
-        // Fallback, falls die JSON in der Vorschau-Umgebung nicht geladen werden kann
+        // Fallback, falls die CSV in der Vorschau-Umgebung nicht geladen werden kann
         allCards = [
-          { "id": 1, "question": "Wofür steht HTML?", "answer": "HyperText Markup Language" },
-          { "id": 2, "question": "Wofür steht CSS?", "answer": "Cascading Style Sheets" },
-          { "id": 3, "question": "Was macht JavaScript?", "answer": "Es macht Webseiten interaktiv." }
+          { id: 1, question: "Wofür steht HTML?", answer: "HyperText Markup Language" },
+          { id: 2, question: "Wofür steht CSS?", answer: "Cascading Style Sheets" },
+          { id: 3, question: "Was macht JavaScript?", answer: "Es macht Webseiten interaktiv." }
         ];
       }
       updateUI();
