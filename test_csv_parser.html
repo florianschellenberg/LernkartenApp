@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV Parser Test</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .test-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .summary {
+      margin: 20px 0;
+      padding: 15px;
+      border-left: 4px solid #007bff;
+      background: #f0f7ff;
+    }
+    .success {
+      border-left-color: #28a745;
+      background: #f0fff0;
+      color: #155724;
+    }
+    .error {
+      border-left-color: #dc3545;
+      background: #fff0f0;
+      color: #721c24;
+    }
+    .card-list {
+      max-height: 600px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin: 20px 0;
+    }
+    .card-item {
+      padding: 10px;
+      margin: 5px 0;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      background: #fafafa;
+    }
+    .card-item.success {
+      background: #f0fff0;
+    }
+    .card-item.error {
+      background: #fff0f0;
+    }
+    .card-id {
+      font-weight: bold;
+      color: #007bff;
+    }
+    .card-question {
+      color: #333;
+      margin: 5px 0;
+    }
+    .card-answer {
+      color: #666;
+      font-size: 0.9em;
+      margin: 5px 0;
+    }
+    button {
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+
+<div class="test-container">
+  <h1>📋 CSV Parser Test für Lernkarten</h1>
+  
+  <div id="summary" class="summary" style="display:none;"></div>
+  
+  <button onclick="runTest()">Test ausführen</button>
+  <button onclick="downloadReport()">Report herunterladen</button>
+  
+  <div id="results" class="card-list" style="display:none;"></div>
+  <div id="loading" style="display:none; text-align:center; padding:20px;">
+    <p>⏳ Teste CSV-Parsing...</p>
+  </div>
+</div>
+
+<script>
+  // Gleicher Parser wie in index.html
+  function parseCSV(csvText) {
+    const lines = csvText.trim().split('\n');
+    const result = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      const parts = [];
+      let current = '';
+      let insideQuotes = false;
+      
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        
+        if (char === '"') {
+          insideQuotes = !insideQuotes;
+        } else if (char === '|' && !insideQuotes) {
+          parts.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      parts.push(current.trim());
+      
+      for (let k = 0; k < parts.length; k++) {
+        if (parts[k].startsWith('"') && parts[k].endsWith('"')) {
+          parts[k] = parts[k].slice(1, -1);
+        }
+      }
+      
+      if (parts.length >= 3) {
+        result.push({
+          id: parseInt(parts[0], 10),
+          question: parts[1],
+          answer: parts[2]
+        });
+      }
+    }
+    return result;
+  }
+
+  async function runTest() {
+    const loading = document.getElementById('loading');
+    const summary = document.getElementById('summary');
+    const results = document.getElementById('results');
+    
+    loading.style.display = 'block';
+    summary.style.display = 'none';
+    results.innerHTML = '';
+    results.style.display = 'none';
+    
+    try {
+      const response = await fetch('karten.csv');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const csvText = await response.text();
+      const cards = parseCSV(csvText);
+      
+      loading.style.display = 'none';
+      results.style.display = 'block';
+      
+      // Validierung
+      const allValid = cards.length === 65 && cards.every(c => c.id && c.question && c.answer);
+      
+      let summaryHTML = `
+        <strong>🎯 Test Ergebnis:</strong><br>
+        Karten geladen: <strong>${cards.length}/65</strong><br>
+        Gültige Einträge: <strong>${cards.filter(c => c.id && c.question && c.answer).length}</strong>
+      `;
+      
+      if (allValid) {
+        summary.className = 'summary success';
+        summaryHTML += '<br><strong style="color: #155724;">✅ ALLE TESTS ERFOLGREICH!</strong>';
+      } else {
+        summary.className = 'summary error';
+        summaryHTML += '<br><strong style="color: #721c24;">❌ FEHLER GEFUNDEN</strong>';
+      }
+      
+      summary.innerHTML = summaryHTML;
+      summary.style.display = 'block';
+      
+      // Detaillierte Kartenliste
+      let listHTML = '';
+      cards.forEach((card, idx) => {
+        const isValid = card.id && card.question && card.answer;
+        const itemClass = isValid ? 'success' : 'error';
+        
+        listHTML += `
+          <div class="card-item ${itemClass}">
+            <div><span class="card-id">ID: ${card.id}</span> ${isValid ? '✅' : '❌'}</div>
+            <div class="card-question"><strong>Frage:</strong> ${truncate(card.question, 100)}</div>
+            <div class="card-answer"><strong>Antwort:</strong> ${truncate(card.answer, 100)}</div>
+          </div>
+        `;
+      });
+      
+      results.innerHTML = listHTML;
+      
+      // Globale Variable für Report
+      window.lastTestData = {
+        timestamp: new Date().toISOString(),
+        totalCards: cards.length,
+        validCards: cards.filter(c => c.id && c.question && c.answer).length,
+        allValid: allValid,
+        cards: cards
+      };
+      
+    } catch (error) {
+      loading.style.display = 'none';
+      summary.style.display = 'block';
+      summary.className = 'summary error';
+      summary.innerHTML = `<strong>❌ Fehler beim Laden der CSV:</strong><br>${error.message}`;
+      results.innerHTML = '';
+      results.style.display = 'block';
+    }
+  }
+
+  function truncate(str, length) {
+    return str.length > length ? str.substring(0, length) + '...' : str;
+  }
+
+  function downloadReport() {
+    if (!window.lastTestData) {
+      alert('Bitte führe zuerst einen Test durch!');
+      return;
+    }
+
+    const data = window.lastTestData;
+    const report = `
+CSV Parser Test Report
+======================
+Zeitstempel: ${data.timestamp}
+Gesamte Karten: ${data.totalCards}
+Gültige Karten: ${data.validCards}
+Test Status: ${data.allValid ? 'BESTANDEN' : 'FEHLGESCHLAGEN'}
+
+Detaillierte Kartenliste:
+${data.cards.map(c => `
+ID: ${c.id}
+Frage: ${c.question}
+Antwort: ${c.answer}
+---`).join('\n')}
+    `;
+
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `csv_test_report_${new Date().getTime()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Auto-test beim Laden
+  window.addEventListener('load', () => {
+    setTimeout(runTest, 500);
+  });
+</script>
+
+</body>
+</html>
