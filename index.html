@@ -197,7 +197,7 @@
     const cardCounter = document.getElementById('card-counter');
     const learnedCounter = document.getElementById('learned-counter');
 
-    // Funktion wandelt den CSV-Text in ein Array von Objekten um
+    // Funktion wandelt den CSV-Text in ein Array von Objekten um mit korrekter Quote-Behandlung
     function parseCSV(csvText) {
       const lines = csvText.trim().split('\n');
       const result = [];
@@ -205,16 +205,32 @@
       // Wir starten bei i=1, um die Kopfzeile (id,question,answer) zu überspringen
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (line) {
-          // Wir trennen die Spalten am Komma auf
-          const parts = line.split(','); 
-          if (parts.length >= 3) {
-            result.push({
-              id: parseInt(parts[0], 10),
-              question: parts[1],
-              answer: parts[2]
-            });
+        if (!line) continue;
+        
+        // Korrekte CSV-Parsing mit Quote-Handling
+        const parts = [];
+        let current = '';
+        let insideQuotes = false;
+        
+        for (let j = 0; j < line.length; j++) {
+          const char = line[j];
+          if (char === '"') {
+            insideQuotes = !insideQuotes;
+          } else if (char === ',' && !insideQuotes) {
+            parts.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
           }
+        }
+        parts.push(current.trim().replace(/^"|"$/g, ''));
+        
+        if (parts.length >= 3) {
+          result.push({
+            id: parseInt(parts[0], 10),
+            question: parts[1],
+            answer: parts[2]
+          });
         }
       }
       return result;
