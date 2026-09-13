@@ -213,54 +213,44 @@
     const learnedCounter = document.getElementById('learned-counter');
     const versionBadge = document.getElementById('version-badge');
 
-    // Funktion wandelt den CSV-Text in ein Array von Objekten um mit korrekter Pipe-Delimiter-Behandlung
+    // Funktion wandelt den CSV-Text in ein Array von Objekten um
+    // Format: Frage,"Antwort"
     function parseCSV(csvText) {
       const lines = csvText.trim().split('\n');
       const result = [];
+      let id = 1;
       
-      // Wir starten bei i=0, da es keine Kopfzeile gibt (direkt die Daten)
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         
-        // Pipe-Delimiter Parsing mit robustem Quote-Handling
-        const parts = [];
-        let current = '';
-        let insideQuotes = false;
+        // Finde das Komma, das Frage und Antwort trennt
+        // Die Antwort ist in Anführungszeichen, daher suchen wir nach: ,"
+        const separatorIndex = line.lastIndexOf(',"');
         
-        for (let j = 0; j < line.length; j++) {
-          const char = line[j];
-          
-          if (char === '"') {
-            // Toggle quote state
-            insideQuotes = !insideQuotes;
-          } else if (char === '|' && !insideQuotes) {
-            // Delimiter found - save current part and reset
-            parts.push(current.trim());
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        // Don't forget the last part
-        parts.push(current.trim());
-        
-        // Remove surrounding quotes from each part
-        for (let k = 0; k < parts.length; k++) {
-          if (parts[k].startsWith('"') && parts[k].endsWith('"')) {
-            parts[k] = parts[k].slice(1, -1);
-          }
+        if (separatorIndex === -1) {
+          // Falls das Format nicht stimmt, überspringen
+          console.warn(`Skipped line ${i + 1}: ${line}`);
+          continue;
         }
         
-        // Expect: ID | Question | Answer
-        if (parts.length >= 3) {
-          result.push({
-            id: parseInt(parts[0], 10),
-            question: parts[1],
-            answer: parts[2]
-          });
+        // Extrahiere Frage und Antwort
+        let question = line.substring(0, separatorIndex).trim();
+        let answer = line.substring(separatorIndex + 2).trim();
+        
+        // Entferne abschließendes Anführungszeichen von der Antwort
+        if (answer.endsWith('"')) {
+          answer = answer.slice(0, -1);
         }
+        
+        result.push({
+          id: id,
+          question: question,
+          answer: answer
+        });
+        id++;
       }
+      
       return result;
     }
 
