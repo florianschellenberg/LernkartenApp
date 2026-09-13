@@ -197,17 +197,17 @@
     const cardCounter = document.getElementById('card-counter');
     const learnedCounter = document.getElementById('learned-counter');
 
-    // Funktion wandelt den CSV-Text in ein Array von Objekten um mit korrekter Quote-Behandlung
+    // Funktion wandelt den CSV-Text in ein Array von Objekten um mit korrekter Pipe-Delimiter-Behandlung
     function parseCSV(csvText) {
       const lines = csvText.trim().split('\n');
       const result = [];
       
-      // Wir starten bei i=1, um die Kopfzeile (id,question,answer) zu überspringen
+      // Wir starten bei i=1, um die Kopfzeile zu überspringen
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         
-        // Korrekte CSV-Parsing mit Quote-Handling
+        // Pipe-Delimiter Parsing mit Quote-Handling
         const parts = [];
         let current = '';
         let insideQuotes = false;
@@ -216,7 +216,7 @@
           const char = line[j];
           if (char === '"') {
             insideQuotes = !insideQuotes;
-          } else if (char === ',' && !insideQuotes) {
+          } else if (char === '|' && !insideQuotes) {
             parts.push(current.trim().replace(/^"|"$/g, ''));
             current = '';
           } else {
