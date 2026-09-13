@@ -218,29 +218,41 @@
       const lines = csvText.trim().split('\n');
       const result = [];
       
-      // Wir starten bei i=1, um die Kopfzeile zu überspringen
-      for (let i = 1; i < lines.length; i++) {
+      // Wir starten bei i=0, da es keine Kopfzeile gibt (direkt die Daten)
+      for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         
-        // Pipe-Delimiter Parsing mit Quote-Handling
+        // Pipe-Delimiter Parsing mit robustem Quote-Handling
         const parts = [];
         let current = '';
         let insideQuotes = false;
         
         for (let j = 0; j < line.length; j++) {
           const char = line[j];
+          
           if (char === '"') {
+            // Toggle quote state
             insideQuotes = !insideQuotes;
           } else if (char === '|' && !insideQuotes) {
-            parts.push(current.trim().replace(/^"|"$/g, ''));
+            // Delimiter found - save current part and reset
+            parts.push(current.trim());
             current = '';
           } else {
             current += char;
           }
         }
-        parts.push(current.trim().replace(/^"|"$/g, ''));
+        // Don't forget the last part
+        parts.push(current.trim());
         
+        // Remove surrounding quotes from each part
+        for (let k = 0; k < parts.length; k++) {
+          if (parts[k].startsWith('"') && parts[k].endsWith('"')) {
+            parts[k] = parts[k].slice(1, -1);
+          }
+        }
+        
+        // Expect: ID | Question | Answer
         if (parts.length >= 3) {
           result.push({
             id: parseInt(parts[0], 10),
@@ -261,8 +273,10 @@
         // Wir laden den puren Text herunter statt JSON
         const csvText = await response.text();
         allCards = parseCSV(csvText);
+        console.log(`✅ ${allCards.length} Karten geladen`);
         
       } catch (error) {
+        console.log("❌ Fehler beim Laden der CSV:", error);
         console.log("Lade Fallback-Daten für die Vorschau...");
         // Fallback, falls die CSV in der Vorschau-Umgebung nicht geladen werden kann
         allCards = [
