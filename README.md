@@ -9,6 +9,9 @@ Dateiname ist der Name des Sets (`Innere_Medizin.csv` → „Innere Medizin"), u
 erscheint automatisch in der Auswahlliste auf der Startseite. Es ist **kein** Eintrag in
 einer Liste und keine Änderung am Code nötig.
 
+Beim ersten Besuch ist „Transaktionsanalyse" vorausgewählt, danach immer das zuletzt
+gelernte Set. Die Vorauswahl steht als `DEFAULT_DECK` oben im Skript von `index.html`.
+
 Format: eine Karte pro Zeile, erste Spalte Frage, zweite Spalte Antwort.
 
 ```csv

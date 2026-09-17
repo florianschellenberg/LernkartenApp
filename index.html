@@ -231,12 +231,12 @@
     <button class="primary-btn" onclick="resetLearning()">Lernstatus dieses Sets zurücksetzen</button>
   </div>
 
-  <div class="version-badge" id="version-badge">v1.1.0</div>
+  <div class="version-badge" id="version-badge">v1.1.1</div>
 
   <script src="csv-parser.js"></script>
   <script src="decks.js"></script>
   <script>
-    const APP_VERSION = '1.1.0';
+    const APP_VERSION = '1.1.1';
 
     // Ordner, in den die .csv-Dateien hochgeladen werden. Mehr ist zum Anlegen
     // eines neuen Kartensets nicht nötig — die Liste entsteht automatisch,
@@ -244,6 +244,9 @@
     const DECK_FOLDER = LernkartenDecks.folder;
 
     const LAST_DECK_KEY = 'flashcards_last_deck';
+    // Vorauswahl, solange noch kein Set gelernt wurde. Fehlt die Datei, greift
+    // das alphabetisch erste Set.
+    const DEFAULT_DECK = 'Transaktionsanalyse.csv';
     const LEGACY_PROGRESS_KEY = 'flashcards_learned_ids';
     const LEGACY_PROGRESS_DECK = 'Transaktionsanalyse.csv';
 
@@ -495,8 +498,10 @@
       });
       deckSelect.disabled = false;
 
+      // Zuletzt gelerntes Set, sonst das Standardset, sonst das erste vorhandene.
       const last = localStorage.getItem(LAST_DECK_KEY);
-      await loadDeck(decks.includes(last) ? last : decks[0]);
+      const preferred = [last, DEFAULT_DECK].find(name => decks.includes(name));
+      await loadDeck(preferred || decks[0]);
     }
 
     // Startet die App
