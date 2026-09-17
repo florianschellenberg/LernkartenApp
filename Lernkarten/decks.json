@@ -1,0 +1,10 @@
+---
+layout: null
+---
+{%- assign decks = "" | split: "," -%}
+{%- for f in site.static_files -%}
+  {%- if f.path contains '/Lernkarten/' and f.extname == '.csv' -%}
+    {%- assign decks = decks | push: f.name -%}
+  {%- endif -%}
+{%- endfor -%}
+{{ decks | sort | jsonify }}

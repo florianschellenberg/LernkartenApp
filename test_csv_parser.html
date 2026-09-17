@@ -77,143 +77,263 @@
     button:hover {
       background: #0056b3;
     }
+    select {
+      padding: 9px;
+      font-family: inherit;
+      font-size: 1em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-right: 10px;
+    }
+    .unit-test {
+      padding: 6px 10px;
+      margin: 4px 0;
+      border-radius: 4px;
+      background: #f0fff0;
+      color: #155724;
+    }
+    .unit-test.failed {
+      background: #fff0f0;
+      color: #721c24;
+    }
+    .unit-test pre {
+      margin: 6px 0 0;
+      white-space: pre-wrap;
+      color: #555;
+    }
   </style>
 </head>
 <body>
 
 <div class="test-container">
   <h1>📋 CSV Parser Test für Lernkarten</h1>
-  
-  <div id="summary" class="summary" style="display:none;"></div>
-  
+
+  <p>Prüft den gemeinsamen Parser (<code>csv-parser.js</code>) gegen die Formate, die
+     beim Hochladen einer beliebigen .csv auftreten können — und anschließend gegen
+     die echten Kartensets im Ordner <code>Lernkarten/</code>.</p>
+
+  <h2>1. Formattests</h2>
+  <div id="unit-results"></div>
+
+  <h2>2. Echte Kartensets</h2>
+  <select id="deck-select"><option>Lade…</option></select>
   <button onclick="runTest()">Test ausführen</button>
   <button onclick="downloadReport()">Report herunterladen</button>
-  
+
+  <div id="summary" class="summary" style="display:none;"></div>
   <div id="results" class="card-list" style="display:none;"></div>
   <div id="loading" style="display:none; text-align:center; padding:20px;">
     <p>⏳ Teste CSV-Parsing...</p>
   </div>
 </div>
 
+<script src="csv-parser.js"></script>
+<script src="decks.js"></script>
 <script>
-  // Gleicher Parser wie in index.html
-  function parseCSV(csvText) {
-    const lines = csvText.trim().split('\n');
-    const result = [];
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      
-      const parts = [];
-      let current = '';
-      let insideQuotes = false;
-      
-      for (let j = 0; j < line.length; j++) {
-        const char = line[j];
-        
-        if (char === '"') {
-          insideQuotes = !insideQuotes;
-        } else if (char === '|' && !insideQuotes) {
-          parts.push(current.trim());
-          current = '';
-        } else {
-          current += char;
-        }
+  /* ---------- 1. Formattests ------------------------------------------------
+   * Jeder Fall entspricht einer .csv, die jemand ohne Nacharbeit hochlädt.
+   */
+  const UNIT_TESTS = [
+    {
+      name: 'Standardformat: Frage,"Antwort"',
+      csv: 'Was ist HTML?,"HyperText Markup Language"\n',
+      expect: [['Was ist HTML?', 'HyperText Markup Language']]
+    },
+    {
+      name: 'Ohne Anführungszeichen',
+      csv: 'Frage A,Antwort A\nFrage B,Antwort B\n',
+      expect: [['Frage A', 'Antwort A'], ['Frage B', 'Antwort B']]
+    },
+    {
+      name: 'Semikolon-Trenner (deutscher Excel-Export)',
+      csv: 'Frage A;Antwort A\nFrage B;Antwort B\n',
+      expect: [['Frage A', 'Antwort A'], ['Frage B', 'Antwort B']]
+    },
+    {
+      name: 'Tabulator-Trenner',
+      csv: 'Frage A\tAntwort A\n',
+      expect: [['Frage A', 'Antwort A']]
+    },
+    {
+      name: 'Kopfzeile wird erkannt und verworfen',
+      csv: 'Frage;Antwort\nWas ist 1+1?;2\n',
+      expect: [['Was ist 1+1?', '2']]
+    },
+    {
+      name: 'Kopfzeilen-ähnliche echte Karte bleibt erhalten',
+      csv: 'Frage nach dem Sinn?;42\n',
+      expect: [['Frage nach dem Sinn?', '42']]
+    },
+    {
+      name: 'BOM und CRLF',
+      csv: '\uFEFFFrage A,"Antwort A"\r\nFrage B,"Antwort B"\r\n',
+      expect: [['Frage A', 'Antwort A'], ['Frage B', 'Antwort B']]
+    },
+    {
+      name: 'Zeilenumbruch innerhalb der Antwort',
+      csv: 'Frage A,"Antwort mit\nzwei Zeilen"\n',
+      expect: [['Frage A', 'Antwort mit\nzwei Zeilen']]
+    },
+    {
+      name: 'Escaptes Anführungszeichen ("")',
+      csv: 'Frage A,"Er sagte ""Hallo"" laut"\n',
+      expect: [['Frage A', 'Er sagte "Hallo" laut']]
+    },
+    {
+      // Kommt in Transaktionsanalyse.csv 8-mal vor
+      name: 'Unquotetes Komma in der Frage',
+      csv: 'Grundeinstellung \'Ich bin OK, du bist OK\'?,"Gegenseitige Wertschätzung."\n',
+      expect: [['Grundeinstellung \'Ich bin OK, du bist OK\'?', 'Gegenseitige Wertschätzung.']]
+    },
+    {
+      name: 'Mehrere unquotete Kommas in der Frage',
+      csv: 'Triade (Erlaubnis, Schutz, Potenz)?,"Alle drei nötig."\n',
+      expect: [['Triade (Erlaubnis, Schutz, Potenz)?', 'Alle drei nötig.']]
+    },
+    {
+      name: 'Zusatzspalte wird ignoriert',
+      csv: '"Frage A","Antwort A","Kategorie"\n',
+      expect: [['Frage A', 'Antwort A']]
+    },
+    {
+      name: 'Leerzeilen und unvollständige Zeilen werden übersprungen',
+      csv: 'Frage A,"Antwort A"\n\nNur eine Spalte\n,\nFrage B,"Antwort B"\n',
+      expect: [['Frage A', 'Antwort A'], ['Frage B', 'Antwort B']],
+      expectSkipped: 1
+    },
+    {
+      name: 'IDs bleiben stabil, wenn eine Karte eingefügt wird',
+      custom: function () {
+        const before = LernkartenCSV.parse('Q1,A1\nQ3,A3\n').cards;
+        const after = LernkartenCSV.parse('Q1,A1\nQ2,A2\nQ3,A3\n').cards;
+        if (before[0].id !== after[0].id) return 'ID der ersten Karte hat sich geändert';
+        if (before[1].id !== after[2].id) return 'ID von Q3 hat sich geändert';
+        return null;
       }
-      parts.push(current.trim());
-      
-      for (let k = 0; k < parts.length; k++) {
-        if (parts[k].startsWith('"') && parts[k].endsWith('"')) {
-          parts[k] = parts[k].slice(1, -1);
-        }
-      }
-      
-      if (parts.length >= 3) {
-        result.push({
-          id: parseInt(parts[0], 10),
-          question: parts[1],
-          answer: parts[2]
-        });
+    },
+    {
+      name: 'Doppelte Fragen bekommen unterschiedliche IDs',
+      custom: function () {
+        const cards = LernkartenCSV.parse('Q,A1\nQ,A2\n').cards;
+        if (cards.length !== 2) return `erwartet 2 Karten, erhalten ${cards.length}`;
+        if (cards[0].id === cards[1].id) return 'beide Karten haben dieselbe ID';
+        return null;
       }
     }
-    return result;
+  ];
+
+  function checkExpectation(test) {
+    const result = LernkartenCSV.parse(test.csv);
+    const got = result.cards.map(card => [card.question, card.answer]);
+
+    if (JSON.stringify(got) !== JSON.stringify(test.expect)) {
+      return `erwartet ${JSON.stringify(test.expect)}\nerhalten ${JSON.stringify(got)}`;
+    }
+    if (test.expectSkipped !== undefined && result.skipped !== test.expectSkipped) {
+      return `erwartet ${test.expectSkipped} übersprungene Zeile(n), erhalten ${result.skipped}`;
+    }
+    return null;
   }
+
+  function runUnitTests() {
+    const container = document.getElementById('unit-results');
+    let failed = 0;
+    let html = '';
+
+    UNIT_TESTS.forEach(test => {
+      let problem;
+      try {
+        problem = test.custom ? test.custom() : checkExpectation(test);
+      } catch (error) {
+        problem = `Ausnahme: ${error.message}`;
+      }
+
+      if (problem) failed++;
+      html += `<div class="unit-test ${problem ? 'failed' : ''}">
+        ${problem ? '❌' : '✅'} ${test.name}
+        ${problem ? `<pre>${escapeHtml(problem)}</pre>` : ''}
+      </div>`;
+    });
+
+    const passed = UNIT_TESTS.length - failed;
+    html = `<div class="summary ${failed ? 'error' : 'success'}">
+      <strong>${failed ? '❌' : '✅'} ${passed}/${UNIT_TESTS.length} Formattests bestanden</strong>
+    </div>` + html;
+
+    container.innerHTML = html;
+  }
+
+  /* ---------- 2. Echte Kartensets ----------------------------------------- */
 
   async function runTest() {
     const loading = document.getElementById('loading');
     const summary = document.getElementById('summary');
     const results = document.getElementById('results');
-    
+    const deck = document.getElementById('deck-select').value;
+
     loading.style.display = 'block';
     summary.style.display = 'none';
     results.innerHTML = '';
     results.style.display = 'none';
-    
+
     try {
-      const response = await fetch('karten.csv');
+      const response = await fetch(LernkartenDecks.path(deck), { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
-      const csvText = await response.text();
-      const cards = parseCSV(csvText);
-      
+
+      const parsed = LernkartenCSV.parse(await response.text());
+      const cards = parsed.cards;
+
       loading.style.display = 'none';
       results.style.display = 'block';
-      
-      // Validierung
-      const allValid = cards.length === 65 && cards.every(c => c.id && c.question && c.answer);
-      
-      let summaryHTML = `
-        <strong>🎯 Test Ergebnis:</strong><br>
-        Karten geladen: <strong>${cards.length}/65</strong><br>
-        Gültige Einträge: <strong>${cards.filter(c => c.id && c.question && c.answer).length}</strong>
+
+      const valid = cards.filter(c => c.id && c.question && c.answer).length;
+      const allValid = cards.length > 0 && valid === cards.length && parsed.skipped === 0;
+
+      summary.className = allValid ? 'summary success' : 'summary error';
+      summary.innerHTML = `
+        <strong>🎯 ${LernkartenDecks.label(deck)}</strong><br>
+        Karten geparst: <strong>${cards.length}</strong><br>
+        Gültige Einträge: <strong>${valid}</strong><br>
+        Übersprungene Zeilen: <strong>${parsed.skipped}</strong><br>
+        <strong>${allValid ? '✅ ALLE ZEILEN VERWERTBAR' : '❌ AUFFÄLLIGKEITEN GEFUNDEN'}</strong>
       `;
-      
-      if (allValid) {
-        summary.className = 'summary success';
-        summaryHTML += '<br><strong style="color: #155724;">✅ ALLE TESTS ERFOLGREICH!</strong>';
-      } else {
-        summary.className = 'summary error';
-        summaryHTML += '<br><strong style="color: #721c24;">❌ FEHLER GEFUNDEN</strong>';
-      }
-      
-      summary.innerHTML = summaryHTML;
       summary.style.display = 'block';
-      
-      // Detaillierte Kartenliste
-      let listHTML = '';
-      cards.forEach((card, idx) => {
+
+      results.innerHTML = cards.map(card => {
         const isValid = card.id && card.question && card.answer;
-        const itemClass = isValid ? 'success' : 'error';
-        
-        listHTML += `
-          <div class="card-item ${itemClass}">
+        return `
+          <div class="card-item ${isValid ? 'success' : 'error'}">
             <div><span class="card-id">ID: ${card.id}</span> ${isValid ? '✅' : '❌'}</div>
-            <div class="card-question"><strong>Frage:</strong> ${truncate(card.question, 100)}</div>
-            <div class="card-answer"><strong>Antwort:</strong> ${truncate(card.answer, 100)}</div>
+            <div class="card-question"><strong>Frage:</strong> ${escapeHtml(truncate(card.question, 120))}</div>
+            <div class="card-answer"><strong>Antwort:</strong> ${escapeHtml(truncate(card.answer, 120))}</div>
           </div>
         `;
-      });
-      
-      results.innerHTML = listHTML;
-      
-      // Globale Variable für Report
+      }).join('');
+
       window.lastTestData = {
         timestamp: new Date().toISOString(),
+        deck: deck,
         totalCards: cards.length,
-        validCards: cards.filter(c => c.id && c.question && c.answer).length,
+        validCards: valid,
+        skipped: parsed.skipped,
         allValid: allValid,
         cards: cards
       };
-      
+
     } catch (error) {
       loading.style.display = 'none';
       summary.style.display = 'block';
       summary.className = 'summary error';
-      summary.innerHTML = `<strong>❌ Fehler beim Laden der CSV:</strong><br>${error.message}`;
+      summary.innerHTML = `<strong>❌ Fehler beim Laden der CSV:</strong><br>${escapeHtml(error.message)}`;
       results.innerHTML = '';
       results.style.display = 'block';
     }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"]/g, ch => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]
+    ));
   }
 
   function truncate(str, length) {
@@ -231,8 +351,10 @@
 CSV Parser Test Report
 ======================
 Zeitstempel: ${data.timestamp}
+Kartenset: ${data.deck}
 Gesamte Karten: ${data.totalCards}
 Gültige Karten: ${data.validCards}
+Übersprungene Zeilen: ${data.skipped}
 Test Status: ${data.allValid ? 'BESTANDEN' : 'FEHLGESCHLAGEN'}
 
 Detaillierte Kartenliste:
@@ -252,9 +374,21 @@ Antwort: ${c.answer}
     URL.revokeObjectURL(url);
   }
 
-  // Auto-test beim Laden
-  window.addEventListener('load', () => {
-    setTimeout(runTest, 500);
+  window.addEventListener('load', async () => {
+    runUnitTests();
+
+    const select = document.getElementById('deck-select');
+    const decks = await LernkartenDecks.list();
+
+    if (!decks.length) {
+      select.innerHTML = '<option>Keine Sets gefunden</option>';
+      return;
+    }
+
+    select.innerHTML = decks
+      .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(LernkartenDecks.label(name))}</option>`)
+      .join('');
+    runTest();
   });
 </script>
 

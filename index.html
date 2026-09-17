@@ -25,8 +25,41 @@
       min-height: 100vh;
     }
 
-    h1 { margin-bottom: 5px; font-size: 24px; }
-    
+    h1 { margin-bottom: 5px; font-size: 24px; text-align: center; }
+
+    /* Auswahl des Kartensets */
+    .deck-picker {
+      width: 100%;
+      max-width: 350px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0 15px;
+    }
+
+    .deck-picker label {
+      font-size: 14px;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    .deck-picker select {
+      flex: 1;
+      padding: 8px 10px;
+      font-size: 15px;
+      font-family: inherit;
+      color: var(--text);
+      background-color: white;
+      border: 1px solid #ccd3d1;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .deck-picker select:disabled {
+      color: #999;
+      cursor: default;
+    }
+
     .status-bar {
       width: 100%;
       max-width: 350px;
@@ -159,8 +192,15 @@
 </head>
 <body>
 
-  <h1>Karteikarten Transaktionsanalyse</h1>
-  
+  <h1 id="deck-title">Lernkarten</h1>
+
+  <div class="deck-picker">
+    <label for="deck-select">Kartenset</label>
+    <select id="deck-select" disabled>
+      <option>Lade…</option>
+    </select>
+  </div>
+
   <div class="status-bar">
     <span id="card-counter">Lade Karten...</span>
     <span id="learned-counter">Gelernt: 0</span>
@@ -187,21 +227,36 @@
 
   <div class="done-container" id="done-container">
     <h2>🎉 Super gemacht!</h2>
-    <p>Du hast alle verfügbaren Karten gelernt.</p>
-    <button class="primary-btn" onclick="resetLearning()">Lernstatus zurücksetzen</button>
+    <p>Du hast alle Karten dieses Sets gelernt.</p>
+    <button class="primary-btn" onclick="resetLearning()">Lernstatus dieses Sets zurücksetzen</button>
   </div>
 
-  <div class="version-badge" id="version-badge">v1.0.0</div>
+  <div class="version-badge" id="version-badge">v1.1.0</div>
 
+  <script src="csv-parser.js"></script>
+  <script src="decks.js"></script>
   <script>
+    const APP_VERSION = '1.1.0';
+
+    // Ordner, in den die .csv-Dateien hochgeladen werden. Mehr ist zum Anlegen
+    // eines neuen Kartensets nicht nötig — die Liste entsteht automatisch,
+    // siehe decks.js.
+    const DECK_FOLDER = LernkartenDecks.folder;
+
+    const LAST_DECK_KEY = 'flashcards_last_deck';
+    const LEGACY_PROGRESS_KEY = 'flashcards_learned_ids';
+    const LEGACY_PROGRESS_DECK = 'Transaktionsanalyse.csv';
+
+    let currentDeck = null;
     let allCards = [];
-    // Hier speichern Nutzer nur die IDs der Karten, die sie können (z. B. [1, 3])
-    let learnedIds = JSON.parse(localStorage.getItem("flashcards_learned_ids")) || [];
+    // IDs der Karten, die der Nutzer im aktuellen Set schon kann
+    let learnedIds = [];
     let cardsToLearn = [];
     let currentIndex = 0;
     let showingQuestion = true;
-    const APP_VERSION = '1.0.0';
 
+    const deckTitle = document.getElementById('deck-title');
+    const deckSelect = document.getElementById('deck-select');
     const cardElement = document.getElementById('card-element');
     const questionElement = document.getElementById('card-question');
     const answerElement = document.getElementById('card-answer');
@@ -213,73 +268,131 @@
     const learnedCounter = document.getElementById('learned-counter');
     const versionBadge = document.getElementById('version-badge');
 
-    // Funktion wandelt den CSV-Text in ein Array von Objekten um
-    // Format: Frage,"Antwort"
-    function parseCSV(csvText) {
-      const lines = csvText.trim().split('\n');
-      const result = [];
-      let id = 1;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        // Finde das Komma, das Frage und Antwort trennt
-        // Die Antwort ist in Anführungszeichen, daher suchen wir nach: ,"
-        const separatorIndex = line.lastIndexOf(',"');
-        
-        if (separatorIndex === -1) {
-          // Falls das Format nicht stimmt, überspringen
-          console.warn(`Skipped line ${i + 1}: ${line}`);
-          continue;
-        }
-        
-        // Extrahiere Frage und Antwort
-        let question = line.substring(0, separatorIndex).trim();
-        let answer = line.substring(separatorIndex + 2).trim();
-        
-        // Entferne abschließendes Anführungszeichen von der Antwort
-        if (answer.endsWith('"')) {
-          answer = answer.slice(0, -1);
-        }
-        
-        result.push({
-          id: id,
-          question: question,
-          answer: answer
-        });
-        id++;
-      }
-      
-      return result;
+    const deckLabel = LernkartenDecks.label;
+
+    function progressKey(deck) {
+      return `flashcards_learned::${deck}`;
     }
 
-    // Karten aus der zentralen karten.csv laden
-    async function loadCards() {
+    /*
+     * Der Parser aus v1.0.0, reduziert auf die Fragetexte.
+     *
+     * Wird nur noch für die Migration des Lernstatus gebraucht: die alten
+     * Positionsnummern beziehen sich auf das Ergebnis *dieses* Parsers. Er
+     * übersprang Zeilen ohne `,"` — der heutige Parser liest sie, wodurch sich
+     * alle nachfolgenden Positionen verschieben. Deshalb wird über den
+     * Fragetext abgeglichen und nicht über den Index.
+     *
+     * Kann entfernt werden, sobald die Migration überall gelaufen ist.
+     */
+    function legacyQuestions(csvText) {
+      return csvText.trim().split('\n')
+        .map(line => line.trim())
+        .filter(line => line && line.lastIndexOf(',"') !== -1)
+        .map(line => line.substring(0, line.lastIndexOf(',"')).trim());
+    }
+
+    /*
+     * Lernfortschritt des Sets laden.
+     *
+     * Bis v1.0.0 lag der Fortschritt in einem einzigen Key und bestand aus
+     * laufenden Nummern der damaligen karten.csv. Diese werden einmalig auf die
+     * jetzt verwendeten, inhaltsbasierten IDs umgeschrieben, damit bereits
+     * gelernte Karten gelernt bleiben.
+     */
+    function loadProgress(deck, cards, csvText) {
+      let ids = [];
       try {
-        const response = await fetch('karten.csv');
-        if (!response.ok) throw new Error("Netzwerkantwort war nicht ok");
-        
-        // Wir laden den puren Text herunter statt JSON
-        const csvText = await response.text();
-        allCards = parseCSV(csvText);
-        console.log(`✅ ${allCards.length} Karten geladen`);
-        
+        ids = JSON.parse(localStorage.getItem(progressKey(deck))) || [];
       } catch (error) {
-        console.log("❌ Fehler beim Laden der CSV:", error);
-        console.log("Lade Fallback-Daten für die Vorschau...");
-        // Fallback, falls die CSV in der Vorschau-Umgebung nicht geladen werden kann
-        allCards = [
-          { id: 1, question: "Wofür steht HTML?", answer: "HyperText Markup Language" },
-          { id: 2, question: "Wofür steht CSS?", answer: "Cascading Style Sheets" },
-          { id: 3, question: "Was macht JavaScript?", answer: "Es macht Webseiten interaktiv." }
-        ];
+        ids = [];
       }
+
+      const legacy = localStorage.getItem(LEGACY_PROGRESS_KEY);
+      if (deck === LEGACY_PROGRESS_DECK && legacy !== null) {
+        try {
+          const positions = JSON.parse(legacy) || [];
+          const questions = legacyQuestions(csvText);
+          const idByQuestion = new Map(cards.map(card => [card.question, card.id]));
+          let migrated = 0;
+
+          positions.forEach(position => {
+            const id = idByQuestion.get(questions[position - 1]);   // alt: 1-basierte Position
+            if (id && !ids.includes(id)) { ids.push(id); migrated++; }
+          });
+
+          console.log(`♻️ ${migrated}/${positions.length} Einträge aus dem alten Lernstatus übernommen`);
+        } catch (error) {
+          console.log('⚠️ Alter Lernstatus unlesbar, wird verworfen:', error.message);
+        }
+        localStorage.removeItem(LEGACY_PROGRESS_KEY);
+        localStorage.setItem(progressKey(deck), JSON.stringify(ids));
+      }
+
+      return ids;
+    }
+
+    // Zeigt einen Hinweis auf der Kartenfläche statt einer Karte
+    function showMessage(text) {
+      allCards = [];
+      cardsToLearn = [];
+      resetFlip();
+      cardScene.classList.remove('hidden');
+      questionElement.textContent = text;
+      answerElement.textContent = text;
+      standardControls.classList.add('hidden');
+      learningControls.classList.add('hidden');
+      doneContainer.style.display = 'none';
+      cardCounter.textContent = '—';
+      learnedCounter.textContent = 'Gelernt: 0';
+    }
+
+    // Ein Kartenset laden und anzeigen
+    async function loadDeck(deck) {
+      currentDeck = deck;
+      localStorage.setItem(LAST_DECK_KEY, deck);
+      deckTitle.textContent = deckLabel(deck);
+      deckSelect.value = deck;
+      currentIndex = 0;
+      resetFlip();
+      cardCounter.textContent = 'Lade Karten...';
+
+      let csvText;
+      let result;
+      try {
+        const response = await fetch(LernkartenDecks.path(deck), { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        csvText = await response.text();
+        result = LernkartenCSV.parse(csvText);
+      } catch (error) {
+        if (currentDeck !== deck) return;
+        console.log(`❌ Fehler beim Laden von ${deck}:`, error.message);
+        showMessage(`„${deckLabel(deck)}“ konnte nicht geladen werden.`);
+        return;
+      }
+
+      // Wurde während des Ladens schon wieder umgeschaltet, gewinnt die neuere
+      // Auswahl — sonst könnte eine langsamere Antwort sie überschreiben.
+      if (currentDeck !== deck) return;
+
+      if (result.skipped) {
+        console.log(`⚠️ ${result.skipped} Zeile(n) in ${deck} übersprungen (keine zwei Spalten).`);
+      }
+
+      if (!result.cards.length) {
+        showMessage(`„${deckLabel(deck)}“ enthält keine lesbaren Karten.`);
+        return;
+      }
+
+      allCards = result.cards;
+      learnedIds = loadProgress(deck, allCards, csvText);
+      console.log(`✅ ${allCards.length} Karten aus ${deck} geladen`);
       updateUI();
     }
 
     function saveLearnedProgress() {
-      localStorage.setItem("flashcards_learned_ids", JSON.stringify(learnedIds));
+      if (!currentDeck) return;
+      localStorage.setItem(progressKey(currentDeck), JSON.stringify(learnedIds));
     }
 
     function updateUI() {
@@ -298,6 +411,9 @@
 
       cardScene.classList.remove('hidden');
       standardControls.classList.remove('hidden');
+      // Ohne dies bliebe die Klasse nach dem "alles gelernt"-Zustand kleben und
+      // das !important aus .hidden würde das Einblenden beim Umdrehen blockieren.
+      learningControls.classList.remove('hidden');
       doneContainer.style.display = 'none';
 
       if (currentIndex >= cardsToLearn.length) currentIndex = 0;
@@ -356,11 +472,35 @@
       updateUI();
     }
 
-    // Setze Version Badge
-    versionBadge.textContent = `v${APP_VERSION}`;
+    // Kartenset wechseln
+    deckSelect.addEventListener('change', () => loadDeck(deckSelect.value));
+
+    async function init() {
+      versionBadge.textContent = `v${APP_VERSION}`;
+
+      const decks = await LernkartenDecks.list();
+
+      if (!decks.length) {
+        deckSelect.innerHTML = '<option>Keine Sets gefunden</option>';
+        showMessage(`Keine Lernkarten gefunden. Lege .csv-Dateien im Ordner „${DECK_FOLDER}“ ab.`);
+        return;
+      }
+
+      deckSelect.innerHTML = '';
+      decks.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = deckLabel(name);
+        deckSelect.appendChild(option);
+      });
+      deckSelect.disabled = false;
+
+      const last = localStorage.getItem(LAST_DECK_KEY);
+      await loadDeck(decks.includes(last) ? last : decks[0]);
+    }
 
     // Startet die App
-    loadCards();
+    init();
   </script>
 </body>
 </html>
